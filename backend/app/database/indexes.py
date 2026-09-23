@@ -56,6 +56,10 @@ INDEX_DEFINITIONS: Dict[str, List[IndexModel]] = {
             [("recipient_user_id", ASCENDING), ("created_at", DESCENDING)],
             name="idx_notifications_recipient_created",
         ),
+        IndexModel(
+            [("recipient_user_id", ASCENDING), ("type", ASCENDING)],
+            name="idx_notifications_recipient_type",
+        ),
     ],
 }
 

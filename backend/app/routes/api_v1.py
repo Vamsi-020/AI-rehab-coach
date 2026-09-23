@@ -6,6 +6,9 @@ from backend.app.routes import auth
 from backend.app.routes import exercises
 from backend.app.routes import sessions
 from backend.app.routes import progress
+from backend.app.routes import therapists
+from backend.app.routes import assignments
+from backend.app.routes import notifications
 
 api_v1_router = APIRouter()
 
@@ -15,3 +18,7 @@ api_v1_router.include_router(auth.router)
 api_v1_router.include_router(exercises.router)
 api_v1_router.include_router(sessions.router)
 api_v1_router.include_router(progress.router)
+api_v1_router.include_router(therapists.router)
+api_v1_router.include_router(assignments.router)
+api_v1_router.include_router(notifications.router)
+

@@ -3,6 +3,7 @@
 Handles creating and retrieving session records for patients.
 """
 
+import asyncio
 from datetime import datetime
 from typing import List
 
@@ -12,6 +13,7 @@ from fastapi import HTTPException, status
 from backend.app.database.collections import Collections
 from backend.app.database.connection import db_manager
 from backend.app.schemas.session import SessionCreateRequest, SessionResponse
+from backend.app.services import notification_service
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +76,15 @@ async def create_session(patient_id: str, payload: SessionCreateRequest) -> Sess
     }
 
     await collection.insert_one(doc)
+
+    # Phase 17: Trigger recovery milestone evaluation in background (non-blocking)
+    try:
+        asyncio.create_task(
+            notification_service.evaluate_recovery_milestones(patient_id, doc)
+        )
+    except Exception:  # pragma: no cover — background task errors must not fail the session save
+        pass
+
     return _session_doc_to_response(doc)
 
 

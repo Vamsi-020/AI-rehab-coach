@@ -69,3 +69,21 @@ async def get_current_active_user(
             detail="Account is disabled",
         )
     return current_user
+
+
+async def require_clinician_user(
+    current_user: dict = Depends(get_current_active_user),
+) -> dict:
+    """Ensure the authenticated user has a clinician role (physiotherapist, therapist, or admin).
+
+    Raises HTTP 403 if the user is a patient or other unauthorized role.
+    """
+    role = str(current_user.get("role", "")).lower()
+    allowed_roles = {"therapist", "physiotherapist", "admin"}
+    if role not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access forbidden: Clinician role required",
+        )
+    return current_user
+
