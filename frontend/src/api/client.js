@@ -179,3 +179,113 @@ export async function getMyExerciseProgress(exercise = null) {
   const query = exercise ? `?exercise=${encodeURIComponent(exercise)}` : '';
   return apiFetch(`/progress/exercises${query}`);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 16: Clinician Portal & Exercise Prescriptions
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieve clinician dashboard summary metrics and assigned patient roster.
+ * @returns {Promise<object>} ClinicianDashboardResponse
+ */
+export async function getClinicianDashboard() {
+  return apiFetch('/therapist/dashboard');
+}
+
+/**
+ * Retrieve the authenticated clinician's assigned patient roster.
+ * @returns {Promise<object>} PatientRosterResponse
+ */
+export async function getClinicianPatientRoster() {
+  return apiFetch('/therapist/patients');
+}
+
+/**
+ * Prescribe a new rehabilitation exercise routine to an assigned patient.
+ * @param {object} payload - AssignmentCreateRequest
+ * @returns {Promise<object>} AssignmentResponse
+ */
+export async function createPrescription(payload) {
+  return apiFetch('/assignments', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Retrieve all exercise prescriptions assigned to a specific patient.
+ * @param {string} patientId
+ * @returns {Promise<object>} AssignmentListResponse
+ */
+export async function getPatientPrescriptions(patientId) {
+  return apiFetch(`/assignments/patient/${encodeURIComponent(patientId)}`);
+}
+
+/**
+ * Retrieve a single exercise prescription by ID.
+ * @param {string} assignmentId
+ * @returns {Promise<object>} AssignmentResponse
+ */
+export async function getPrescription(assignmentId) {
+  return apiFetch(`/assignments/${encodeURIComponent(assignmentId)}`);
+}
+
+/**
+ * Update parameters on an existing prescription.
+ * @param {string} assignmentId
+ * @param {object} payload - AssignmentUpdateRequest
+ * @returns {Promise<object>} AssignmentResponse
+ */
+export async function updatePrescription(assignmentId, payload) {
+  return apiFetch(`/assignments/${encodeURIComponent(assignmentId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * Deactivate (mark completed) an exercise prescription.
+ * @param {string} assignmentId
+ * @returns {Promise<object>} AssignmentResponse
+ */
+export async function deactivatePrescription(assignmentId) {
+  return apiFetch(`/assignments/${encodeURIComponent(assignmentId)}`, {
+    method: 'DELETE',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Phase 17 — Patient Prescribed Routine
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieve the authenticated patient's own active exercise prescriptions.
+ * Scoped strictly to the JWT-authenticated user — no patient_id accepted from client.
+ * @returns {Promise<object>} AssignmentListResponse { assignments: [], total: number }
+ */
+export async function getMyPrescriptions() {
+  return apiFetch('/assignments/my-routine');
+}
+
+// ---------------------------------------------------------------------------
+// Phase 17 — Patient Notifications
+// ---------------------------------------------------------------------------
+
+/**
+ * Retrieve all notifications for the authenticated patient.
+ * @returns {Promise<object>} NotificationListResponse { notifications: [], unread_count, total }
+ */
+export async function getNotifications() {
+  return apiFetch('/notifications');
+}
+
+/**
+ * Mark a specific notification as read.
+ * @param {string} notificationId
+ * @returns {Promise<object>} NotificationMarkReadResponse { id, is_read, message }
+ */
+export async function markNotificationRead(notificationId) {
+  return apiFetch(`/notifications/${encodeURIComponent(notificationId)}/read`, {
+    method: 'PATCH',
+  });
+}

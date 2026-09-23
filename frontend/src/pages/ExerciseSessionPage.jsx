@@ -17,16 +17,31 @@ import PoseCameraView from '../components/camera/PoseCameraView';
 import { createSessionController, SESSION_STATES } from '../services/sessionController';
 
 /**
- * ExerciseSessionPage — Phase 14 Integration.
+ * ExerciseSessionPage — Phase 14 Integration + Phase 17 Prescription Awareness.
  *
  * Wires the complete rehabilitation pipeline (camera → pose → rep counter →
  * movement quality → feedback engine) into a SessionController-managed workflow.
  *
+ * When a `prescription` prop is passed (from PatientDashboard via App.jsx), the
+ * session is initialised with the clinician-prescribed parameters:
+ *   - Exercise ID / slug
+ *   - Target reps & sets
+ *   - Target ROM
+ *   - Custom clinician instructions (displayed in a dedicated banner)
+ *
  * Session Flow:
  *   READY → ACTIVE ↔ PAUSED → COMPLETING → COMPLETED → SessionResultsPage
  */
-const ExerciseSessionPage = ({ onNavigate }) => {
+const ExerciseSessionPage = ({ onNavigate, prescription = null }) => {
   const { isAuthenticated } = useAuth();
+
+  // ── Resolve session parameters from prescription or use defaults ──
+  const prescribedExerciseId = prescription?.exercise_slug || 'knee-flexion';
+  const prescribedExerciseName = prescription?.exercise_name || 'Seated Knee Extension';
+  const prescribedReps = (prescription?.prescribed_reps > 0 ? prescription.prescribed_reps : null) || 12;
+  const prescribedSets = (prescription?.prescribed_sets > 0 ? prescription.prescribed_sets : null) || 3;
+  const prescribedROM = prescription?.target_rom_degrees || null;
+  const clinicianNotes = prescription?.custom_instructions || null;
 
   // ── Session Controller (singleton ref, stable across renders) ──
   const controllerRef = useRef(null);
@@ -46,17 +61,17 @@ const ExerciseSessionPage = ({ onNavigate }) => {
   const [sessionQuality, setSessionQuality] = useState(null);
   const [realtimeFeedback, setRealtimeFeedback] = useState(null);
 
-  const totalReps = 12;
-  const currentSet = 2;
-  const totalSets = 3;
+  const totalReps = prescribedReps;
+  const currentSet = 1;
+  const totalSets = prescribedSets;
 
   // ── Initialise controller once ──
   useEffect(() => {
     const ctrl = createSessionController({
-      exerciseId: 'knee-flexion',
-      exerciseName: 'Seated Knee Extension',
-      targetReps: totalReps,
-      targetSets: totalSets,
+      exerciseId: prescribedExerciseId,
+      exerciseName: prescribedExerciseName,
+      targetReps: prescribedReps,
+      targetSets: prescribedSets,
       currentSet,
       onStateChange: (status) => {
         setSessionStatus(status);
@@ -181,9 +196,13 @@ const ExerciseSessionPage = ({ onNavigate }) => {
 
       <main className="dashboard-content">
         <PageHeader
-          badge="Live AI Coaching Session"
-          title="Seated Knee Extension"
-          description="Maintain upright posture and extend your lower leg steadily to target angle."
+          badge={prescription ? 'Prescribed AI Session' : 'Live AI Coaching Session'}
+          title={prescribedExerciseName}
+          description={
+            prescription
+              ? `${prescribedSets} sets × ${prescribedReps} reps${prescribedROM ? ` • Target ROM: ${prescribedROM}°` : ''}`
+              : 'Maintain upright posture and extend your lower leg steadily to target angle.'
+          }
           action={
             <Button
               variant="outline"
@@ -195,6 +214,39 @@ const ExerciseSessionPage = ({ onNavigate }) => {
           }
         />
 
+        {/* Phase 17 — Clinician Instructions Banner (shown only when prescription is present) */}
+        {clinicianNotes && (
+          <div
+            id="clinician-instructions-banner"
+            style={{
+              margin: '0 0 16px',
+              padding: '14px 18px',
+              background: 'var(--primary-50, #eff6ff)',
+              border: '1px solid var(--primary-200, #bfdbfe)',
+              borderLeft: '4px solid var(--primary-500, #3b82f6)',
+              borderRadius: 'var(--radius-md)',
+              display: 'flex',
+              gap: 12,
+              alignItems: 'flex-start',
+            }}
+          >
+            <SparklesIcon size={18} style={{ color: 'var(--primary-600)', flexShrink: 0, marginTop: 2 }} />
+            <div>
+              <div style={{ fontSize: '0.73rem', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--primary-600)', marginBottom: 4 }}>
+                Clinician Instructions
+              </div>
+              <div style={{ fontSize: '0.88rem', color: 'var(--text-main)', lineHeight: 1.5 }}>
+                {clinicianNotes}
+              </div>
+              {prescribedROM && (
+                <div style={{ marginTop: 6, fontSize: '0.8rem', color: 'var(--primary-700)', fontWeight: 600 }}>
+                  Target ROM: {prescribedROM}°
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="session-container">
           {/* Main Camera Frame & AI Pose Tracking View */}
           <div>
@@ -202,7 +254,7 @@ const ExerciseSessionPage = ({ onNavigate }) => {
               onPoseDetected={handlePoseDetected}
               onStatusChange={setCameraStatus}
               isPaused={isPaused}
-              exerciseId="knee-flexion"
+              exerciseId={prescribedExerciseId}
               resetKey={resetKey}
             />
 

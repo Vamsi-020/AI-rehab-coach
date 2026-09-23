@@ -36,11 +36,20 @@ function App() {
   const [activePage, setActivePage] = useState(getInitialPage);
   // Structured session results passed from ExerciseSessionPage → SessionResultsPage
   const [sessionResults, setSessionResults] = useState(null);
+  // Phase 17: Prescription payload passed from PatientDashboard → ExerciseSessionPage
+  const [sessionPrescription, setSessionPrescription] = useState(null);
 
-  // Sync state to URL hash; optionally accept a results payload
+  // Sync state to URL hash; optionally accept a results or prescription payload
   const navigateTo = (page, payload = null) => {
     if (page === 'session-results' && payload) {
       setSessionResults(payload);
+    }
+    // Phase 17: When navigating to session from prescription, store prescription config
+    if (page === 'session' && payload && payload.exercise_slug) {
+      setSessionPrescription(payload);
+    } else if (page === 'session' && !payload) {
+      // Clear prescription when starting a free (non-prescribed) session
+      setSessionPrescription(null);
     }
     setActivePage(page);
     window.location.hash = page;
@@ -73,7 +82,7 @@ function App() {
       case 'exercises':
         return <ExerciseListPage onNavigate={navigateTo} />;
       case 'session':
-        return <ExerciseSessionPage onNavigate={navigateTo} />;
+        return <ExerciseSessionPage onNavigate={navigateTo} prescription={sessionPrescription} />;
       case 'session-results':
         return (
           <SessionResultsPage

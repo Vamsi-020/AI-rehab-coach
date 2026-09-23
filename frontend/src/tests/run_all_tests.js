@@ -20,7 +20,10 @@ const suites = [
   'feedback_engine.test.js',
   'session_integration.test.js',
   'progress_analytics.test.js',
+  'physio_dashboard.test.js',
+  'patient_routine_notifications.test.js',
 ];
+
 
 console.log(`\n========================================`);
 console.log(`Running Frontend Test Suite (${suites.length} files)`);
