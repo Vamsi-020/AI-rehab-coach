@@ -16,6 +16,7 @@ const suites = [
   'joint_angle.test.js',
   'exercise_analyzer.test.js',
   'rep_counter.test.js',
+  'shoulder_abduction_runtime.test.js',
   'movement_quality.test.js',
   'feedback_engine.test.js',
   'session_integration.test.js',

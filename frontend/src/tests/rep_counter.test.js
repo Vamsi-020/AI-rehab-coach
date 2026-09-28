@@ -272,9 +272,15 @@ export function runRepCounterTests() {
   assert(resetCounter.getStats().totalCompleted === 0, 'Stats must be zeroed after reset');
   console.log('  [PASS] Session reset cleared all states and counters.');
 
-  // Test 10: Support for all three exercises
-  console.log('10. Testing support for Knee Flexion, Shoulder Raise, and Squat...');
-  const exercises = ['knee-flexion', 'shoulder-raise', 'squat'];
+  // Test 10: Support for all therapeutic exercises including Shoulder Abduction
+  console.log('10. Testing support for Knee Flexion, Shoulder Raise, Squat, and Shoulder Abduction...');
+  const exercises = [
+    'knee-flexion',
+    'shoulder-raise',
+    'squat',
+    'shoulder-abduction-scapular',
+    'shoulder-abduction',
+  ];
 
   for (const exId of exercises) {
     const exCounter = createRepCounter(exId, {
@@ -293,7 +299,38 @@ export function runRepCounterTests() {
     assert(exCounter.repCount === 1, `Exercise ${exId} should have completed 1 rep`);
     assert(endStep.lastResult.exercise === exCounter.definition.name, `Output exercise name mismatch for ${exId}`);
   }
-  console.log('  [PASS] All 3 therapeutic exercises (Knee Flexion, Shoulder Raise, Squat) supported.');
+  console.log('  [PASS] All therapeutic exercises (Knee Flexion, Shoulder Raise, Squat, Shoulder Abduction) supported.');
+
+  // Test 11: Shoulder Abduction Left and Right Complete Repetition Counting
+  console.log('11. Testing Shoulder Abduction left and right complete repetition counting...');
+  const abdCounter = createRepCounter('shoulder-abduction-scapular', {
+    consecutiveFramesToTransition: 1,
+    minRepDurationMs: 100,
+    cooldownMs: 50,
+  });
+
+  // Rep 1: Left arm complete rep
+  let curT = 1000;
+  simulateState(abdCounter, MOVEMENT_STATES.START, 1, curT, 50);
+  simulateState(abdCounter, MOVEMENT_STATES.MOVING, 1, curT + 100, 50);
+  simulateState(abdCounter, MOVEMENT_STATES.TARGET, 1, curT + 200, 50);
+  simulateState(abdCounter, MOVEMENT_STATES.RETURNING, 1, curT + 300, 50);
+  const rep1Result = simulateState(abdCounter, MOVEMENT_STATES.START, 1, curT + 400, 50);
+
+  assert(abdCounter.repCount === 1, `Expected repCount 1 after left rep, got ${abdCounter.repCount}`);
+  assert(rep1Result.lastResult.rep_completed === true, 'rep_completed should be true on completion frame');
+
+  // Rep 2: Right arm complete rep
+  curT = 2000;
+  simulateState(abdCounter, MOVEMENT_STATES.START, 1, curT, 50);
+  simulateState(abdCounter, MOVEMENT_STATES.MOVING, 1, curT + 100, 50);
+  simulateState(abdCounter, MOVEMENT_STATES.TARGET, 1, curT + 200, 50);
+  simulateState(abdCounter, MOVEMENT_STATES.RETURNING, 1, curT + 300, 50);
+  const rep2Result = simulateState(abdCounter, MOVEMENT_STATES.START, 1, curT + 400, 50);
+
+  assert(abdCounter.repCount === 2, `Expected repCount 2 after right rep, got ${abdCounter.repCount}`);
+  assert(rep2Result.lastResult.rep_completed === true, 'rep_completed should be true on completion frame of rep 2');
+  console.log('  [PASS] Shoulder Abduction left and right reps counted accurately without double-counting.');
 
   console.log('\nAll Phase 11 Repetition Counting Engine Tests PASSED successfully!');
 }

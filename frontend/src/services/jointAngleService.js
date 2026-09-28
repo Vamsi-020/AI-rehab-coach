@@ -388,7 +388,26 @@ export class JointAngleEngine {
     const [ptAName, ptBName, ptCName] = def.points;
     const ptA = this.resolveLandmark(pose, ptAName);
     const ptB = this.resolveLandmark(pose, ptBName);
-    const ptC = this.resolveLandmark(pose, ptCName);
+    let ptC = this.resolveLandmark(pose, ptCName);
+
+    // Biomechanical fallback for shoulder abduction/elevation:
+    // If the hip (ptC) is occluded or outside the camera frame (common in seated / desktop setups)
+    // but the shoulder (ptB) and elbow (ptA) are clearly visible and valid, construct the anatomical
+    // downward trunk vector from the shoulder vertex.
+    if (def.type === 'shoulder' && ptB && ptA) {
+      const minConf = this.config.minConfidence ?? DEFAULT_ANGLE_CONFIG.minConfidence;
+      const hipVis = typeof ptC?.visibility === 'number' ? ptC.visibility : (ptC?.isValid ? 1.0 : 0);
+      const hipValid = ptC && ptC.isValid !== false && hipVis >= minConf;
+      if (!hipValid) {
+        ptC = {
+          x: ptB.x,
+          y: ptB.y + 1.0,
+          z: ptB.z ?? 0,
+          visibility: typeof ptB.visibility === 'number' ? ptB.visibility : 1.0,
+          isValid: true,
+        };
+      }
+    }
 
     const result = calculateAngle(ptA, ptB, ptC, this.config);
 

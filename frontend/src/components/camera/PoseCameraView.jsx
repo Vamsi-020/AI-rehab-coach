@@ -47,12 +47,13 @@ const PoseCameraView = ({
   className = '',
   processorConfig = null,
   angleConfig = null,
-  primaryJointKey = 'leftKnee',
+  primaryJointKey = null,
   exerciseId = 'knee-flexion',
   repCounterConfig = null,
   qualityConfig = null,
   feedbackConfig = null,
   resetKey = 0,
+  selectedSide = null,
 }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -65,6 +66,11 @@ const PoseCameraView = ({
   const repCounterRef = useRef(null);
   const qualityAnalyzerRef = useRef(null);
   const feedbackEngineRef = useRef(null);
+
+  // DEV DEBUG: diagnostic tracking refs & state
+  const debugLastUpdateRef = useRef(0);
+  const debugLastLoggedRef = useRef({ analyzerState: null, repCount: -1, repState: null });
+  const [debugData, setDebugData] = useState(null);
 
   const [cameraStatus, setCameraStatus] = useState(CAMERA_STATUS.STARTING);
   const [errorMessage, setErrorMessage] = useState('');
@@ -90,8 +96,17 @@ const PoseCameraView = ({
 
   // Initialize Exercise Analyzer
   useEffect(() => {
-    analyzerRef.current = createExerciseAnalyzer(exerciseId);
-  }, [exerciseId]);
+    analyzerRef.current = createExerciseAnalyzer(exerciseId, {
+      preferredSide: selectedSide || 'auto',
+    });
+  }, [exerciseId, selectedSide]);
+
+  // Dynamically update side on existing analyzer instance
+  useEffect(() => {
+    if (analyzerRef.current && selectedSide) {
+      analyzerRef.current.setSelectedSide?.(selectedSide);
+    }
+  }, [selectedSide]);
 
   // Initialize Repetition Counter
   useEffect(() => {
@@ -204,10 +219,24 @@ const PoseCameraView = ({
           if (processedPose && angleEngineRef.current) {
             angles = angleEngineRef.current.calculateAll(processedPose);
 
-            // Select primary angle to display
-            let active = angles[primaryJointKey];
-            if (!active?.isValid && primaryJointKey === 'leftKnee' && angles.rightKnee?.isValid) {
-              active = angles.rightKnee;
+            // Select primary angle to display derived from active exercise definition
+            const primaryJoints = analyzerRef.current?.definition?.primaryJoints || [];
+            const defaultSideTarget = selectedSide === 'right'
+              ? primaryJoints.find((j) => j.toLowerCase().startsWith('right'))
+              : selectedSide === 'left'
+              ? primaryJoints.find((j) => j.toLowerCase().startsWith('left'))
+              : primaryJoints[0];
+            const targetJoint = primaryJointKey || defaultSideTarget || primaryJoints[0] || 'leftShoulder';
+
+            let active = angles[targetJoint];
+            // If the designated primary joint is invalid, try the alternate side from primaryJoints
+            if (!active?.isValid && primaryJoints.length > 0) {
+              for (const jKey of primaryJoints) {
+                if (angles[jKey]?.isValid) {
+                  active = angles[jKey];
+                  break;
+                }
+              }
             }
             if (!active?.isValid) {
               active = Object.values(angles).find((a) => a.isValid) || null;
@@ -226,6 +255,11 @@ const PoseCameraView = ({
           if (processedPose && angles && analyzerRef.current) {
             analysis = analyzerRef.current.analyze(processedPose, angles, timestamp);
             setAnalysisData(analysis);
+
+            // Keep displayed angle synchronized with analyzer's resolved active joint
+            if (analysis?.primaryJoint && angles[analysis.primaryJoint]?.isValid) {
+              setActiveAngleData(angles[analysis.primaryJoint]);
+            }
 
             // Record frame telemetry for movement quality analysis
             qualityAnalyzerRef.current?.recordFrame(analysis, angles, processedPose, timestamp);
@@ -278,6 +312,84 @@ const PoseCameraView = ({
               feedbackData: feedbackObj,
               score: displayScore,
               isTracking: true,
+            });
+          }
+
+          // DEV DEBUG: Capture live shoulder abduction telemetry & log state transitions
+          const currentSide = selectedSide || analyzerRef.current?.options?.preferredSide || 'auto';
+          const currentJoint = analysis?.primaryJoint || analyzerRef.current?.activeJointKey || 'none';
+          const lShoulderAng = angles?.leftShoulder?.angle;
+          const rShoulderAng = angles?.rightShoulder?.angle;
+          const actAngleVal = (currentJoint && angles?.[currentJoint]?.angle != null)
+            ? angles[currentJoint].angle
+            : (analyzerRef.current?.smoothedAngle != null
+                ? Math.round(analyzerRef.current.smoothedAngle * 10) / 10
+                : null);
+
+          const curAnalyzerState = analysis?.state || analyzerRef.current?.currentState || 'N/A';
+          const curRepState = repResult?.state || repCounterRef.current?.state || 'N/A';
+          const curRepCount = repResult?.rep_count ?? repCounterRef.current?.repCount ?? 0;
+          const curPrevRepState = repCounterRef.current?.previousState || 'N/A';
+          const curReachedTarget = repCounterRef.current?.reachedTarget ?? false;
+          const curRepStartTime = repCounterRef.current?.repStartTime;
+
+          const lsConf = processedPose?.byName?.leftShoulder?.visibility;
+          const leConf = processedPose?.byName?.leftElbow?.visibility;
+          const lhConf = processedPose?.byName?.leftHip?.visibility;
+          const rsConf = processedPose?.byName?.rightShoulder?.visibility;
+          const reConf = processedPose?.byName?.rightElbow?.visibility;
+          const rhConf = processedPose?.byName?.rightHip?.visibility;
+
+          // Log state transitions and rep-count changes to console
+          if (
+            curAnalyzerState !== debugLastLoggedRef.current.analyzerState ||
+            curRepState !== debugLastLoggedRef.current.repState ||
+            curRepCount !== debugLastLoggedRef.current.repCount
+          ) {
+            debugLastLoggedRef.current = {
+              analyzerState: curAnalyzerState,
+              repState: curRepState,
+              repCount: curRepCount,
+            };
+            console.log(
+              `[REHAB DEBUG] ` +
+              `side=${currentSide} ` +
+              `joint=${currentJoint} ` +
+              `angle=${actAngleVal != null ? actAngleVal + '°' : 'N/A'} ` +
+              `state=${curAnalyzerState} ` +
+              `repState=${curRepState} ` +
+              `repCount=${curRepCount} ` +
+              `leftShoulderConf=${lsConf != null ? (lsConf * 100).toFixed(1) + '%' : 'N/A'} ` +
+              `leftElbowConf=${leConf != null ? (leConf * 100).toFixed(1) + '%' : 'N/A'} ` +
+              `rightShoulderConf=${rsConf != null ? (rsConf * 100).toFixed(1) + '%' : 'N/A'} ` +
+              `rightElbowConf=${reConf != null ? (reConf * 100).toFixed(1) + '%' : 'N/A'} ` +
+              `leftHipConf=${lhConf != null ? (lhConf * 100).toFixed(1) + '%' : 'N/A'} ` +
+              `rightHipConf=${rhConf != null ? (rhConf * 100).toFixed(1) + '%' : 'N/A'}`
+            );
+          }
+
+          // Throttle overlay re-render to ~10fps or state changes
+          if (timestamp - debugLastUpdateRef.current > 100 || curAnalyzerState !== debugData?.analyzerState) {
+            debugLastUpdateRef.current = timestamp;
+            setDebugData({
+              activeSide: currentSide,
+              activeJoint: currentJoint,
+              leftShoulderAngle: lShoulderAng,
+              rightShoulderAngle: rShoulderAng,
+              activeAngle: actAngleVal,
+              analyzerState: curAnalyzerState,
+              analyzerProgress: analysis?.progress ?? 0,
+              repState: curRepState,
+              repCount: curRepCount,
+              previousState: curPrevRepState,
+              reachedTarget: curReachedTarget,
+              repStartTime: curRepStartTime,
+              leftShoulderConf: lsConf,
+              leftElbowConf: leConf,
+              leftHipConf: lhConf,
+              rightShoulderConf: rsConf,
+              rightElbowConf: reConf,
+              rightHipConf: rhConf,
             });
           }
         } else {
@@ -554,6 +666,103 @@ const PoseCameraView = ({
                 {analysisData.postureAlert}
               </div>
             )}
+          </div>
+        )}
+
+        {/* TEMPORARY DEV DEBUG OVERLAY — SHOULDER ABDUCTION */}
+        {exerciseId?.includes('shoulder') && debugData && cameraStatus === CAMERA_STATUS.ACTIVE && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 48,
+              left: 12,
+              zIndex: 35,
+              background: 'rgba(15, 23, 42, 0.92)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              color: '#f8fafc',
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              fontSize: '0.72rem',
+              lineHeight: 1.45,
+              maxWidth: '320px',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.6)',
+              pointerEvents: 'none',
+              textAlign: 'left',
+            }}
+          >
+            <div style={{ color: '#38bdf8', fontWeight: 800, fontSize: '0.75rem', letterSpacing: '0.05em', marginBottom: 6, borderBottom: '1px solid rgba(56, 189, 248, 0.25)', paddingBottom: 4 }}>
+              DEV DEBUG: LIVE SHOULDER ABDUCTION DEBUG
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 8, rowGap: 2 }}>
+              <span style={{ color: '#94a3b8' }}>Active side:</span>
+              <span style={{ fontWeight: 700, color: '#f8fafc' }}>{debugData.activeSide}</span>
+
+              <span style={{ color: '#94a3b8' }}>Active joint:</span>
+              <span style={{ fontWeight: 700, color: '#f8fafc' }}>{debugData.activeJoint}</span>
+
+              <span style={{ color: '#94a3b8' }}>Left shoulder angle:</span>
+              <span style={{ color: '#fbbf24' }}>{debugData.leftShoulderAngle != null ? `${debugData.leftShoulderAngle}°` : 'N/A'}</span>
+
+              <span style={{ color: '#94a3b8' }}>Right shoulder angle:</span>
+              <span style={{ color: '#fbbf24' }}>{debugData.rightShoulderAngle != null ? `${debugData.rightShoulderAngle}°` : 'N/A'}</span>
+
+              <span style={{ color: '#94a3b8' }}>Active angle:</span>
+              <span style={{ fontWeight: 800, color: '#4ade80', fontSize: '0.8rem' }}>{debugData.activeAngle != null ? `${debugData.activeAngle}°` : 'N/A'}</span>
+
+              <div style={{ gridColumn: '1 / -1', height: 1, background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
+
+              <span style={{ color: '#94a3b8' }}>Analyzer state:</span>
+              <span style={{ fontWeight: 800, color: debugData.analyzerState === 'TARGET' ? '#4ade80' : debugData.analyzerState === 'MOVING' ? '#38bdf8' : '#e2e8f0' }}>{debugData.analyzerState}</span>
+
+              <span style={{ color: '#94a3b8' }}>Analyzer progress:</span>
+              <span>{debugData.analyzerProgress}%</span>
+
+              <div style={{ gridColumn: '1 / -1', height: 1, background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
+
+              <span style={{ color: '#94a3b8' }}>RepCounter state:</span>
+              <span style={{ fontWeight: 800, color: debugData.repState === 'TARGET' ? '#4ade80' : debugData.repState === 'MOVING' ? '#38bdf8' : '#e2e8f0' }}>{debugData.repState}</span>
+
+              <span style={{ color: '#94a3b8' }}>Rep count:</span>
+              <span style={{ fontWeight: 800, color: '#4ade80', fontSize: '0.82rem' }}>{debugData.repCount}</span>
+
+              <span style={{ color: '#94a3b8' }}>Previous state:</span>
+              <span>{debugData.previousState}</span>
+
+              <span style={{ color: '#94a3b8' }}>Reached target:</span>
+              <span style={{ color: debugData.reachedTarget ? '#4ade80' : '#ef4444' }}>{String(debugData.reachedTarget)}</span>
+
+              <span style={{ color: '#94a3b8' }}>Rep start time:</span>
+              <span>{debugData.repStartTime ? `${Math.round(debugData.repStartTime)} ms` : 'none'}</span>
+
+              <div style={{ gridColumn: '1 / -1', height: 1, background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
+
+              <span style={{ color: '#38bdf8', gridColumn: '1 / -1', fontWeight: 700 }}>Landmark confidence:</span>
+              <span style={{ color: '#94a3b8', paddingLeft: 6 }}>Left shoulder:</span>
+              <span>{debugData.leftShoulderConf != null ? `${(debugData.leftShoulderConf * 100).toFixed(1)}%` : 'N/A'}</span>
+
+              <span style={{ color: '#94a3b8', paddingLeft: 6 }}>Left elbow:</span>
+              <span>{debugData.leftElbowConf != null ? `${(debugData.leftElbowConf * 100).toFixed(1)}%` : 'N/A'}</span>
+
+              <span style={{ color: '#94a3b8', paddingLeft: 6 }}>Left hip:</span>
+              <span>{debugData.leftHipConf != null ? `${(debugData.leftHipConf * 100).toFixed(1)}%` : 'N/A'}</span>
+
+              <span style={{ color: '#94a3b8', paddingLeft: 6 }}>Right shoulder:</span>
+              <span>{debugData.rightShoulderConf != null ? `${(debugData.rightShoulderConf * 100).toFixed(1)}%` : 'N/A'}</span>
+
+              <span style={{ color: '#94a3b8', paddingLeft: 6 }}>Right elbow:</span>
+              <span>{debugData.rightElbowConf != null ? `${(debugData.rightElbowConf * 100).toFixed(1)}%` : 'N/A'}</span>
+
+              <span style={{ color: '#94a3b8', paddingLeft: 6 }}>Right hip:</span>
+              <span>{debugData.rightHipConf != null ? `${(debugData.rightHipConf * 100).toFixed(1)}%` : 'N/A'}</span>
+
+              <div style={{ gridColumn: '1 / -1', height: 1, background: 'rgba(255,255,255,0.1)', margin: '4px 0' }} />
+
+              <span style={{ color: '#94a3b8', gridColumn: '1 / -1', fontSize: '0.68rem' }}>
+                Target zone: 75°+ • Start zone: &le;40° • Return zone: &le;45°
+              </span>
+            </div>
           </div>
         )}
 

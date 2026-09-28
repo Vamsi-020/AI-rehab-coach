@@ -43,6 +43,21 @@ const ExerciseSessionPage = ({ onNavigate, prescription = null }) => {
   const prescribedROM = prescription?.target_rom_degrees || null;
   const clinicianNotes = prescription?.custom_instructions || null;
 
+  // ── Resolve active side from prescription or default to auto ──
+  const initialSide = (() => {
+    if (prescription?.target_joint) {
+      const tj = prescription.target_joint.toLowerCase();
+      if (tj.includes('right')) return 'right';
+      if (tj.includes('left')) return 'left';
+    }
+    if (prescription?.affected_side) {
+      const as = prescription.affected_side.toLowerCase();
+      if (as === 'right' || as === 'left') return as;
+    }
+    return null;
+  })();
+  const [selectedSide, setSelectedSide] = useState(initialSide);
+
   // ── Session Controller (singleton ref, stable across renders) ──
   const controllerRef = useRef(null);
   const [sessionStatus, setSessionStatus] = useState(SESSION_STATES.READY);
@@ -250,12 +265,71 @@ const ExerciseSessionPage = ({ onNavigate, prescription = null }) => {
         <div className="session-container">
           {/* Main Camera Frame & AI Pose Tracking View */}
           <div>
+            {(prescribedExerciseId.includes('shoulder') || prescribedExerciseId.includes('knee')) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Active Side:
+                </span>
+                <div style={{ display: 'inline-flex', borderRadius: 'var(--radius-sm)', background: 'var(--bg-card)', border: '1px solid var(--border-light)', padding: 2 }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSide('left')}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: '0.78rem',
+                      fontWeight: selectedSide === 'left' ? 700 : 500,
+                      borderRadius: 4,
+                      border: 'none',
+                      background: selectedSide === 'left' ? 'var(--primary-600)' : 'transparent',
+                      color: selectedSide === 'left' ? '#ffffff' : 'var(--text-main)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Left
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSide('right')}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: '0.78rem',
+                      fontWeight: selectedSide === 'right' ? 700 : 500,
+                      borderRadius: 4,
+                      border: 'none',
+                      background: selectedSide === 'right' ? 'var(--primary-600)' : 'transparent',
+                      color: selectedSide === 'right' ? '#ffffff' : 'var(--text-main)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Right
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSide(null)}
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: '0.78rem',
+                      fontWeight: !selectedSide ? 700 : 500,
+                      borderRadius: 4,
+                      border: 'none',
+                      background: !selectedSide ? 'var(--primary-600)' : 'transparent',
+                      color: !selectedSide ? '#ffffff' : 'var(--text-main)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Auto
+                  </button>
+                </div>
+              </div>
+            )}
+
             <PoseCameraView
               onPoseDetected={handlePoseDetected}
               onStatusChange={setCameraStatus}
               isPaused={isPaused}
               exerciseId={prescribedExerciseId}
               resetKey={resetKey}
+              selectedSide={selectedSide}
             />
 
             {/* Real-Time Live Coaching Feedback Banner */}

@@ -144,6 +144,82 @@ export const EXERCISE_DEFINITIONS = {
       invalid: 'Full body landmarks not detected. Step back slightly.',
     },
   },
+
+  'shoulder-abduction-scapular': {
+    id: 'shoulder-abduction-scapular',
+    name: 'Shoulder Abduction (Scapular Plane)',
+    description:
+      'Raise your arm laterally in the scapular plane (30 degrees forward of coronal) up to 90 degrees.',
+    requiredLandmarks: ['leftShoulder', 'leftElbow'],
+    sideRequiredLandmarks: {
+      left: ['leftShoulder', 'leftElbow'],
+      right: ['rightShoulder', 'rightElbow'],
+    },
+    primaryJoints: ['leftShoulder', 'rightShoulder'],
+    defaultSide: 'left',
+    minConfidence: 0.5,
+    // Angles for Shoulder Abduction: Elbow -> Shoulder -> Hip / Torso
+    // Arm resting at side is ~15°-30°. As arm abducts, angle increases toward 90°.
+    movementDirection: 'increasing',
+    startingPosition: {
+      angle: 25,
+      tolerance: 15, // 10° to 40°
+    },
+    targetPosition: {
+      angle: 90,
+      tolerance: 15, // 75° to 105°
+    },
+    returnPosition: {
+      angle: 30,
+      tolerance: 15, // 15° to 45°
+    },
+    feedbackRules: {
+      start: 'Rest your arm at your side to begin.',
+      moving: 'Raise arm smoothly in the scapular plane toward 90 degrees.',
+      target: 'Target elevation reached. Controlled pause before lowering.',
+      returning: 'Smoothly lower your arm back to your side.',
+      incomplete: 'Arm lowered before reaching target abduction height.',
+      lowConfidence: 'Ensure your shoulder and arm are in clear view.',
+      invalid: 'Cannot detect shoulder landmarks. Adjust camera view.',
+    },
+  },
+
+  'shoulder-abduction': {
+    id: 'shoulder-abduction',
+    name: 'Shoulder Abduction',
+    description:
+      'Raise your arm laterally from your side up to shoulder level (90 degrees).',
+    requiredLandmarks: ['leftShoulder', 'leftElbow'],
+    sideRequiredLandmarks: {
+      left: ['leftShoulder', 'leftElbow'],
+      right: ['rightShoulder', 'rightElbow'],
+    },
+    primaryJoints: ['leftShoulder', 'rightShoulder'],
+    defaultSide: 'left',
+    minConfidence: 0.5,
+    movementDirection: 'increasing',
+    startingPosition: {
+      angle: 25,
+      tolerance: 15, // 10° to 40°
+    },
+    targetPosition: {
+      angle: 90,
+      tolerance: 15, // 75° to 105°
+    },
+    returnPosition: {
+      angle: 30,
+      tolerance: 15, // 15° to 45°
+    },
+    feedbackRules: {
+      start: 'Rest your arm at your side to begin.',
+      moving: 'Raise arm smoothly outward toward shoulder level.',
+      target: 'Target elevation reached. Controlled pause before lowering.',
+      returning: 'Smoothly lower your arm back to your side.',
+      incomplete: 'Arm lowered before reaching target abduction height.',
+      lowConfidence: 'Ensure your shoulder and arm are in clear view.',
+      invalid: 'Cannot detect shoulder landmarks. Adjust camera view.',
+    },
+  },
 };
 
 /**
@@ -153,8 +229,16 @@ export const EXERCISE_DEFINITIONS = {
  * @returns {object}
  */
 export function getExerciseDefinition(exerciseId) {
+  if (!exerciseId) return EXERCISE_DEFINITIONS['knee-flexion'];
   if (EXERCISE_DEFINITIONS[exerciseId]) {
     return EXERCISE_DEFINITIONS[exerciseId];
+  }
+  // Check shoulder abduction aliases
+  if (exerciseId === 'shoulder-abduction-scapular' || exerciseId === 'shoulder-abduction') {
+    return EXERCISE_DEFINITIONS['shoulder-abduction-scapular'] || EXERCISE_DEFINITIONS['shoulder-abduction'];
+  }
+  if (exerciseId.includes('shoulder-abduction')) {
+    return EXERCISE_DEFINITIONS['shoulder-abduction-scapular'];
   }
   // Default fallback to knee-flexion
   return EXERCISE_DEFINITIONS['knee-flexion'];

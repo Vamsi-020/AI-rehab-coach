@@ -35,7 +35,7 @@ export class ExerciseAnalyzer {
         : exercise || EXERCISE_DEFINITIONS['knee-flexion'];
 
     this.options = {
-      preferredSide: options.preferredSide || 'auto',
+      preferredSide: options.preferredSide || options.selectedSide || 'auto',
       minConfidence: options.minConfidence ?? this.definition.minConfidence ?? 0.5,
       consecutiveFramesToTransition: options.consecutiveFramesToTransition ?? 2,
       ...options,
@@ -52,6 +52,19 @@ export class ExerciseAnalyzer {
     this.smoothedAngle = null;
     this.recentAngles = [];
     this.maxHistorySize = 5;
+    this.activeJointKey = null;
+  }
+
+  /**
+   * Dynamically update preferred/selected side.
+   *
+   * @param {'left'|'right'|'auto'} side
+   */
+  setSelectedSide(side) {
+    if (side === 'left' || side === 'right' || side === 'auto') {
+      this.options.preferredSide = side;
+      this.activeJointKey = null;
+    }
   }
 
   /**
@@ -77,10 +90,11 @@ export class ExerciseAnalyzer {
     this.hasReachedTargetInRep = false;
     this.smoothedAngle = null;
     this.recentAngles = [];
+    this.activeJointKey = null;
   }
 
   /**
-   * Select the primary active joint based on preferred side and confidence.
+   * Select the primary active joint based on preferred side, movement activity, and confidence.
    *
    * @param {Record<string, object>} angles
    * @returns {{ jointKey: string, angleObj: object | null }}
@@ -88,33 +102,87 @@ export class ExerciseAnalyzer {
   resolveActiveJoint(angles) {
     if (!angles) return { jointKey: '', angleObj: null };
 
-    const { primaryJoints, defaultSide } = this.definition;
+    const { primaryJoints, defaultSide, startingPosition, movementDirection } = this.definition;
     const pref = this.options.preferredSide;
 
-    // 1. If explicit side preferred
+    // 1. If explicit side preferred ('left' or 'right')
     if (pref === 'left' || pref === 'right') {
       const match = primaryJoints.find((j) => j.toLowerCase().startsWith(pref));
       if (match && angles[match]?.isValid) {
+        this.activeJointKey = match;
         return { jointKey: match, angleObj: angles[match] };
       }
     }
 
-    // 2. If 'auto', pick the primary joint with higher confidence / valid
-    let bestKey = primaryJoints[0] || '';
-    let bestAngle = null;
-    let highestConf = -1;
-
-    for (const key of primaryJoints) {
-      const a = angles[key];
-      if (a && a.isValid && a.confidence > highestConf) {
-        highestConf = a.confidence;
-        bestKey = key;
-        bestAngle = a;
-      }
+    // 2. If a repetition is currently active (MOVING, TARGET, RETURNING), lock to the active joint
+    if (
+      this.activeJointKey &&
+      this.currentState !== MOVEMENT_STATES.START &&
+      this.currentState !== MOVEMENT_STATES.IDLE &&
+      angles[this.activeJointKey]?.isValid
+    ) {
+      return { jointKey: this.activeJointKey, angleObj: angles[this.activeJointKey] };
     }
 
-    if (bestAngle) {
-      return { jointKey: bestKey, angleObj: bestAngle };
+    // 3. Dynamically choose the shoulder/joint that is actually moving
+    const validCandidates = primaryJoints
+      .map((k) => ({ key: k, angleObj: angles[k] }))
+      .filter((c) => c.angleObj && c.angleObj.isValid);
+
+    if (validCandidates.length === 1) {
+      this.activeJointKey = validCandidates[0].key;
+      return { jointKey: validCandidates[0].key, angleObj: validCandidates[0].angleObj };
+    }
+
+    if (validCandidates.length > 1) {
+      const isDecreasing = movementDirection === 'decreasing';
+      const startAngle = startingPosition?.angle ?? 25;
+      const startTol = startingPosition?.tolerance ?? 15;
+
+      const candidatesWithMovement = validCandidates.map((c) => {
+        const ang = c.angleObj.angle;
+        const displacement = isDecreasing ? startAngle - ang : ang - startAngle;
+        const isMovedPastStart = isDecreasing
+          ? ang < startAngle - startTol
+          : ang > startAngle + startTol;
+        return { ...c, displacement, isMovedPastStart };
+      });
+
+      // Prioritize candidate actively moving past the starting threshold
+      const moving = candidatesWithMovement.filter((c) => c.isMovedPastStart);
+      if (moving.length > 0) {
+        moving.sort((a, b) => b.displacement - a.displacement);
+        this.activeJointKey = moving[0].key;
+        return { jointKey: moving[0].key, angleObj: moving[0].angleObj };
+      }
+
+      // Prioritize candidate with significantly larger movement displacement (> 8 degrees)
+      candidatesWithMovement.sort((a, b) => b.displacement - a.displacement);
+      if (candidatesWithMovement[0].displacement - candidatesWithMovement[1].displacement > 8) {
+        this.activeJointKey = candidatesWithMovement[0].key;
+        return { jointKey: candidatesWithMovement[0].key, angleObj: candidatesWithMovement[0].angleObj };
+      }
+
+      // If confidences differ significantly (> 0.15 difference), pick higher confidence
+      const confA = candidatesWithMovement[0].angleObj.confidence;
+      const confB = candidatesWithMovement[1].angleObj.confidence;
+      if (Math.abs(confA - confB) > 0.15) {
+        const higherConf = confA >= confB ? candidatesWithMovement[0] : candidatesWithMovement[1];
+        this.activeJointKey = higherConf.key;
+        return { jointKey: higherConf.key, angleObj: higherConf.angleObj };
+      }
+
+      // Maintain current active joint if previously selected
+      if (this.activeJointKey && angles[this.activeJointKey]?.isValid) {
+        return { jointKey: this.activeJointKey, angleObj: angles[this.activeJointKey] };
+      }
+
+      // Fallback to default side match
+      const defaultMatch =
+        validCandidates.find((c) => c.key.toLowerCase().startsWith(defaultSide)) ||
+        validCandidates[0];
+      this.activeJointKey = defaultMatch.key;
+      return { jointKey: defaultMatch.key, angleObj: defaultMatch.angleObj };
     }
 
     // Fallback to default
@@ -126,18 +194,86 @@ export class ExerciseAnalyzer {
   }
 
   /**
+   * Determine required landmarks based on active side.
+   *
+   * @param {'left'|'right'|null} [side]
+   * @returns {string[]}
+   */
+  getRequiredLandmarks(side = null) {
+    const def = this.definition;
+    const targetSide = side || (this.options.preferredSide !== 'auto' ? this.options.preferredSide : null);
+
+    if (def.sideRequiredLandmarks && targetSide && def.sideRequiredLandmarks[targetSide]) {
+      return def.sideRequiredLandmarks[targetSide];
+    }
+
+    if (def.id?.includes('shoulder-abduction')) {
+      if (targetSide === 'right') return ['rightShoulder', 'rightElbow'];
+      if (targetSide === 'left') return ['leftShoulder', 'leftElbow'];
+    }
+
+    return def.requiredLandmarks || [];
+  }
+
+  /**
    * Check whether all required landmarks exist and meet confidence.
    *
    * @param {object} pose Processed pose frame
-   * @returns {{ ok: boolean, missingCount: number, minConfidence: number }}
+   * @returns {{ ok: boolean, missingCount: number, minConfidence: number, hasLowConfidence: boolean }}
    */
   verifyRequiredLandmarks(pose) {
     if (!pose || !pose.byName) {
       return { ok: false, missingCount: 999, minConfidence: 0, hasLowConfidence: false };
     }
 
-    const { requiredLandmarks, minConfidence } = this.definition;
+    const { minConfidence } = this.definition;
     const threshold = this.options.minConfidence ?? minConfidence;
+    const pref = this.options.preferredSide;
+    const isShoulderAbduction = Boolean(this.definition.id?.includes('shoulder-abduction'));
+
+    // For shoulder abduction when side is auto: either left or right arm should be valid
+    if (isShoulderAbduction && (pref === 'auto' || !pref)) {
+      const checkSide = (landmarks) => {
+        let missing = 0;
+        let lowest = 1.0;
+        let hasLow = false;
+        for (const name of landmarks) {
+          const lm = pose.byName[name];
+          if (
+            !lm ||
+            typeof lm.x !== 'number' ||
+            Number.isNaN(lm.x) ||
+            typeof lm.y !== 'number' ||
+            Number.isNaN(lm.y)
+          ) {
+            missing++;
+          } else {
+            const vis = typeof lm.visibility === 'number' ? lm.visibility : (lm.isValid ? 1.0 : 0);
+            lowest = Math.min(lowest, vis);
+            if (vis < threshold) hasLow = true;
+          }
+        }
+        return { ok: missing === 0 && !hasLow, missing, lowest, hasLow };
+      };
+
+      const leftCheck = checkSide(['leftShoulder', 'leftElbow']);
+      const rightCheck = checkSide(['rightShoulder', 'rightElbow']);
+
+      if (leftCheck.ok || rightCheck.ok) {
+        const bestConf = Math.max(leftCheck.ok ? leftCheck.lowest : 0, rightCheck.ok ? rightCheck.lowest : 0);
+        return { ok: true, missingCount: 0, minConfidence: bestConf, hasLowConfidence: false };
+      }
+
+      return {
+        ok: false,
+        missingCount: Math.min(leftCheck.missing, rightCheck.missing),
+        minConfidence: Math.max(leftCheck.lowest, rightCheck.lowest),
+        hasLowConfidence: true,
+      };
+    }
+
+    // Explicit side preference or standard exercise: determine required landmarks for this side
+    const requiredLandmarks = this.getRequiredLandmarks(pref === 'right' || pref === 'left' ? pref : null);
     let missingCount = 0;
     let lowestConf = 1.0;
     let hasLowConfidence = false;

@@ -320,6 +320,122 @@ function runExerciseAnalyzerTests() {
   assert(kneeAnalyzer.currentState === MOVEMENT_STATES.START, 'State should be reset to START');
   console.log('  [PASS] Dynamic exercise switching and reset validated.');
 
+  // Test 11: Shoulder Abduction Definition & Biomechanical Verification
+  console.log('11. Testing Shoulder Abduction definition, aliases, and movement lifecycle...');
+  const abdScapularDef = getExerciseDefinition('shoulder-abduction-scapular');
+  const abdDef = getExerciseDefinition('shoulder-abduction');
+
+  assert(abdScapularDef !== undefined, 'shoulder-abduction-scapular definition must exist');
+  assert(abdDef !== undefined, 'shoulder-abduction definition must exist');
+
+  // Verify primary joints
+  assert(
+    abdScapularDef.primaryJoints.includes('leftShoulder') && abdScapularDef.primaryJoints.includes('rightShoulder'),
+    'Shoulder abduction primary joints must include leftShoulder and rightShoulder'
+  );
+  assert(
+    !abdScapularDef.primaryJoints.includes('leftKnee') && !abdScapularDef.primaryJoints.includes('rightKnee'),
+    'Shoulder abduction must NOT use knee joints'
+  );
+
+  // Verify direction and thresholds
+  assert(abdScapularDef.movementDirection === 'increasing', 'Shoulder abduction direction must be increasing');
+  assert(abdScapularDef.startingPosition.angle >= 20 && abdScapularDef.startingPosition.angle <= 30, 'Starting angle around 25°');
+  assert(abdScapularDef.targetPosition.angle >= 80 && abdScapularDef.targetPosition.angle <= 100, 'Target angle around 90°');
+  assert(abdScapularDef.returnPosition.angle >= 20 && abdScapularDef.returnPosition.angle <= 40, 'Return angle around 30°');
+
+  // Verify required landmarks are side-aware and do not require hip
+  assert(abdScapularDef.requiredLandmarks.includes('leftElbow'), 'Must require elbow landmark');
+  assert(abdScapularDef.requiredLandmarks.includes('leftShoulder'), 'Must require shoulder landmark');
+  assert(!abdScapularDef.requiredLandmarks.includes('leftHip'), 'Shoulder abduction must NOT require hip landmark');
+  assert(abdScapularDef.sideRequiredLandmarks?.right.includes('rightShoulder'), 'Right side must require rightShoulder');
+  assert(abdScapularDef.sideRequiredLandmarks?.right.includes('rightElbow'), 'Right side must require rightElbow');
+
+  // Left-arm shoulder abduction lifecycle (START -> MOVING -> TARGET -> RETURNING -> START)
+  // Also verifies: hip visibility below 0.5 does not invalidate shoulder abduction!
+  const abdAnalyzerLeft = createExerciseAnalyzer('shoulder-abduction-scapular', { preferredSide: 'left' });
+  const abdPoseLeft = createMockPose({
+    leftElbow: { visibility: 0.95 },
+    leftShoulder: { visibility: 0.95 },
+    leftHip: { visibility: 0.1 }, // Hip below 0.5 must NOT invalidate shoulder abduction!
+  });
+
+  const resLeftStart = abdAnalyzerLeft.analyze(abdPoseLeft, createMockAngles('leftShoulder', 25));
+  assert(resLeftStart.state === MOVEMENT_STATES.START, `Expected START for left arm, got ${resLeftStart.state}`);
+
+  abdAnalyzerLeft.analyze(abdPoseLeft, createMockAngles('leftShoulder', 55));
+  const resLeftMoving = abdAnalyzerLeft.analyze(abdPoseLeft, createMockAngles('leftShoulder', 55));
+  assert(resLeftMoving.state === MOVEMENT_STATES.MOVING, `Expected MOVING for left arm, got ${resLeftMoving.state}`);
+
+  abdAnalyzerLeft.analyze(abdPoseLeft, createMockAngles('leftShoulder', 92));
+  const resLeftTarget = abdAnalyzerLeft.analyze(abdPoseLeft, createMockAngles('leftShoulder', 92));
+  assert(resLeftTarget.state === MOVEMENT_STATES.TARGET, `Expected TARGET for left arm, got ${resLeftTarget.state}`);
+
+  abdAnalyzerLeft.analyze(abdPoseLeft, createMockAngles('leftShoulder', 50));
+  const resLeftReturn = abdAnalyzerLeft.analyze(abdPoseLeft, createMockAngles('leftShoulder', 50));
+  assert(resLeftReturn.state === MOVEMENT_STATES.RETURNING, `Expected RETURNING for left arm, got ${resLeftReturn.state}`);
+
+  abdAnalyzerLeft.analyze(abdPoseLeft, createMockAngles('leftShoulder', 25));
+  const resLeftCompleted = abdAnalyzerLeft.analyze(abdPoseLeft, createMockAngles('leftShoulder', 25));
+  assert(resLeftCompleted.state === MOVEMENT_STATES.START, `Expected return to START for left arm, got ${resLeftCompleted.state}`);
+
+  // Right-arm shoulder abduction lifecycle
+  const abdAnalyzerRight = createExerciseAnalyzer('shoulder-abduction-scapular', { preferredSide: 'right' });
+  const abdPoseRight = createMockPose({
+    rightElbow: { visibility: 0.95 },
+    rightShoulder: { visibility: 0.95 },
+    rightHip: { visibility: 0.05 }, // Hip below 0.5 must NOT invalidate
+  });
+
+  const resRightStart = abdAnalyzerRight.analyze(abdPoseRight, createMockAngles('rightShoulder', 25));
+  assert(resRightStart.state === MOVEMENT_STATES.START, `Expected START for right arm, got ${resRightStart.state}`);
+  assert(resRightStart.primaryJoint === 'rightShoulder', `Expected rightShoulder, got ${resRightStart.primaryJoint}`);
+
+  abdAnalyzerRight.analyze(abdPoseRight, createMockAngles('rightShoulder', 60));
+  const resRightMoving = abdAnalyzerRight.analyze(abdPoseRight, createMockAngles('rightShoulder', 60));
+  assert(resRightMoving.state === MOVEMENT_STATES.MOVING, `Expected MOVING for right arm, got ${resRightMoving.state}`);
+
+  abdAnalyzerRight.analyze(abdPoseRight, createMockAngles('rightShoulder', 90));
+  const resRightTarget = abdAnalyzerRight.analyze(abdPoseRight, createMockAngles('rightShoulder', 90));
+  assert(resRightTarget.state === MOVEMENT_STATES.TARGET, `Expected TARGET for right arm, got ${resRightTarget.state}`);
+
+  abdAnalyzerRight.analyze(abdPoseRight, createMockAngles('rightShoulder', 45));
+  const resRightReturn = abdAnalyzerRight.analyze(abdPoseRight, createMockAngles('rightShoulder', 45));
+  assert(resRightReturn.state === MOVEMENT_STATES.RETURNING, `Expected RETURNING for right arm, got ${resRightReturn.state}`);
+
+  abdAnalyzerRight.analyze(abdPoseRight, createMockAngles('rightShoulder', 22));
+  const resRightCompleted = abdAnalyzerRight.analyze(abdPoseRight, createMockAngles('rightShoulder', 22));
+  assert(resRightCompleted.state === MOVEMENT_STATES.START, `Expected return to START for right arm, got ${resRightCompleted.state}`);
+
+  // Test 12: Equal left/right confidence does not permanently force left side when right is selected or moving
+  console.log('12. Testing side-selection when confidences are equal...');
+  const dualPose = createMockPose({
+    leftShoulder: { visibility: 0.98 },
+    leftElbow: { visibility: 0.98 },
+    rightShoulder: { visibility: 0.98 },
+    rightElbow: { visibility: 0.98 },
+  });
+  const equalConfidenceAngles = {
+    leftShoulder: { joint: 'leftShoulder', angle: 10, confidence: 0.98, isValid: true },
+    rightShoulder: { joint: 'rightShoulder', angle: 10, confidence: 0.98, isValid: true },
+  };
+
+  // When right side is explicitly selected with equal confidence:
+  const rightPrefAnalyzer = createExerciseAnalyzer('shoulder-abduction-scapular', { preferredSide: 'right' });
+  const rightPrefRes = rightPrefAnalyzer.analyze(dualPose, equalConfidenceAngles);
+  assert(rightPrefRes.primaryJoint === 'rightShoulder', `Explicit right must select rightShoulder, got ${rightPrefRes.primaryJoint}`);
+
+  // When side is auto, but right arm begins moving:
+  const autoAnalyzer = createExerciseAnalyzer('shoulder-abduction-scapular', { preferredSide: 'auto' });
+  const rightMovingAngles = {
+    leftShoulder: { joint: 'leftShoulder', angle: 10, confidence: 0.98, isValid: true },
+    rightShoulder: { joint: 'rightShoulder', angle: 55, confidence: 0.98, isValid: true },
+  };
+  const autoRes = autoAnalyzer.analyze(dualPose, rightMovingAngles);
+  assert(autoRes.primaryJoint === 'rightShoulder', `Auto mode must select actively moving right arm, got ${autoRes.primaryJoint}`);
+
+  console.log('  [PASS] Shoulder Abduction definition, side-awareness, and lifecycles fully verified.');
+
   console.log('\nAll Phase 10 Exercise Analysis Engine Tests PASSED successfully!');
 }
 

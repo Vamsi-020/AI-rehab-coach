@@ -467,11 +467,26 @@ async def get_my_active_routine(patient_user_id: str) -> List[AssignmentResponse
     """
     col = _get_col(Collections.EXERCISE_ASSIGNMENTS)
     ex_col = _get_col(Collections.EXERCISES)
+    patients_col = _get_col(Collections.PATIENTS)
 
     # Build a broad query to match patient_id stored as ObjectId or string
+    # Supports both authenticated users._id and patient profile patients._id
     id_variants: list = [patient_user_id]
     if ObjectId.is_valid(patient_user_id):
         id_variants.append(ObjectId(patient_user_id))
+
+    # Resolve patient profile from patients collection using authenticated user_id
+    p_filter = [{"user_id": patient_user_id}]
+    if ObjectId.is_valid(patient_user_id):
+        p_filter.append({"user_id": ObjectId(patient_user_id)})
+    patient_doc = await patients_col.find_one({"$or": p_filter})
+    if patient_doc and "_id" in patient_doc:
+        p_doc_id = patient_doc["_id"]
+        if p_doc_id not in id_variants:
+            id_variants.append(p_doc_id)
+        p_doc_id_str = str(p_doc_id)
+        if p_doc_id_str not in id_variants:
+            id_variants.append(p_doc_id_str)
 
     query = {
         "patient_id": {"$in": id_variants},
